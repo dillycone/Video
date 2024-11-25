@@ -9,6 +9,7 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File;
     const pdfFile = formData.get('pdf') as File;
     const customPrompt = formData.get('prompt') as string;
+    const model = formData.get('model') as string || 'gemini-1.5-pro-002'; // Default to pro if not specified
     
     if (!file) {
       return NextResponse.json(
@@ -45,11 +46,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Build Python script arguments
-    const pythonArgs = ['main.py', tempFilePath, tempPromptPath, '--mode=procedure'];
+    // Build Python script arguments - flags must come before positional arguments
+    const pythonArgs = [
+      'main.py',
+      '--mode', 'procedure',
+      '--model', model
+    ];
+    
+    // Add PDF flag if provided
     if (pdfFile) {
       pythonArgs.push('--pdf', tempPdfPath);
     }
+
+    // Add positional arguments last
+    pythonArgs.push(tempFilePath, tempPromptPath);
 
     // Run Python script with the video file path, prompt path, and optional PDF path as arguments
     return new Promise((resolve) => {

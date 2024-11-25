@@ -40,6 +40,7 @@ export default function VideoProcedureContext() {
   const [defaultPrompt, setDefaultPrompt] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [copySuccess, setCopySuccess] = useState(false);
+  const [model, setModel] = useState('gemini-1.5-pro-002');
 
   useEffect(() => {
     const loadPrompt = async () => {
@@ -103,6 +104,7 @@ export default function VideoProcedureContext() {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('model', model);
       if (pdfFile) {
         formData.append('pdf', pdfFile);
       }
@@ -300,18 +302,22 @@ export default function VideoProcedureContext() {
 
   return (
     <div className="min-h-screen bg-[#F5F5F5]">
-      <nav className="ti-nav py-4 px-6">
-        <div className="container mx-auto">
+      <div className="bg-[#CC0000] text-white py-16">
+        <div className="container mx-auto px-4">
           <button
             onClick={() => router.push('/')}
-            className="mb-4 flex items-center text-gray-600 hover:text-gray-900"
+            className="mb-4 flex items-center text-white hover:text-gray-200"
           >
             <span className="mr-2">←</span>
             Back to Tools
           </button>
-          <h1 className="text-2xl font-bold">Procedure Generation with Additional Context</h1>
+          <div className="max-w-2xl mx-auto text-center">
+            <h1 className="text-5xl font-bold">
+              Generate Procedure With Context
+            </h1>
+          </div>
         </div>
-      </nav>
+      </div>
 
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-lg p-8">
@@ -320,6 +326,7 @@ export default function VideoProcedureContext() {
           </h2>
           <p className="text-gray-600 mb-8 text-center">
             Upload a video to generate a detailed, step-by-step procedure with additional context. Our AI will analyze the content and create a comprehensive guide with enhanced contextual information.
+            Videos must be less than one hour in length.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -386,6 +393,33 @@ export default function VideoProcedureContext() {
                   {pdfFile ? pdfFile.name : "Upload a PDF for additional context (optional)"}
                 </span>
               </label>
+            </div>
+
+            {/* Model Selection */}
+            <div className="flex flex-col space-y-2">
+              <label className="text-sm font-medium text-gray-700">Model Selection</label>
+              <div className="flex space-x-4">
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    value="gemini-1.5-pro-002"
+                    checked={model === 'gemini-1.5-pro-002'}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="form-radio text-[#CC0000] h-4 w-4"
+                  />
+                  <span className="ml-2">Gemini 1.5 Pro</span>
+                </label>
+                <label className="inline-flex items-center">
+                  <input
+                    type="radio"
+                    value="gemini-1.5-flash-002"
+                    checked={model === 'gemini-1.5-flash-002'}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="form-radio text-[#CC0000] h-4 w-4"
+                  />
+                  <span className="ml-2">Gemini 1.5 Flash</span>
+                </label>
+              </div>
             </div>
 
             <div className="text-center">

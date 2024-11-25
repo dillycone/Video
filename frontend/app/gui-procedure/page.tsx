@@ -8,12 +8,18 @@ interface Procedure {
   title: string;
   overview: string;
   prerequisites: string[];
+  interface_setup?: {
+    initial_state: string;
+    requirements: string[];
+  };
   steps: {
     main: string;
     sub: string[];
     warnings: string[];
     tips: string[];
+    visual_cues?: string[];
   }[];
+  visual_confirmation?: string[];
   verification: string;
   troubleshooting: string[];
   token_usage?: {
@@ -28,7 +34,7 @@ interface Procedure {
   };
 }
 
-export default function VideoProcedure() {
+export default function GUIProcedure() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string>('');
@@ -43,7 +49,7 @@ export default function VideoProcedure() {
 
   useEffect(() => {
     // Load the default prompt
-    fetch('/prompts/procedure_from_video_prompt.txt')
+    fetch('/prompts/gui_procedure_prompt.txt')
       .then(response => response.text())
       .then(text => {
         setDefaultPrompt(text);
@@ -58,7 +64,6 @@ export default function VideoProcedure() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      // Cleanup previous URL if it exists
       if (videoUrl) {
         URL.revokeObjectURL(videoUrl);
       }
@@ -67,7 +72,6 @@ export default function VideoProcedure() {
       setError(null);
       setProcedure(null);
 
-      // Create new video URL
       const newVideoUrl = URL.createObjectURL(selectedFile);
       setVideoUrl(newVideoUrl);
     }
@@ -111,14 +115,28 @@ export default function VideoProcedure() {
     let text = `${proc.title}\n\n`;
     text += `OVERVIEW:\n${proc.overview}\n\n`;
     text += `PREREQUISITES:\n${proc.prerequisites.map(p => `- ${p}`).join('\n')}\n\n`;
+    
+    if (proc.interface_setup) {
+      text += `INTERFACE SETUP:\n${proc.interface_setup.initial_state}\n`;
+      text += proc.interface_setup.requirements.map(r => `- ${r}`).join('\n') + '\n\n';
+    }
+    
     text += `PROCEDURE:\n`;
     proc.steps.forEach((step, index) => {
       text += `${index + 1}. ${step.main}\n`;
       step.sub.forEach(sub => text += `   ${sub}\n`);
       step.warnings.forEach(warning => text += `   ⚠️ ${warning}\n`);
       step.tips.forEach(tip => text += `   💡 ${tip}\n`);
+      if (step.visual_cues) {
+        step.visual_cues.forEach(cue => text += `   👁️ ${cue}\n`);
+      }
       text += '\n';
     });
+
+    if (proc.visual_confirmation) {
+      text += `VISUAL CONFIRMATION POINTS:\n${proc.visual_confirmation.map(v => `- ${v}`).join('\n')}\n\n`;
+    }
+    
     text += `VERIFICATION:\n${proc.verification}\n\n`;
     text += `TROUBLESHOOTING:\n${proc.troubleshooting.map(t => `- ${t}`).join('\n')}`;
 
@@ -151,7 +169,7 @@ export default function VideoProcedure() {
 
     const pdf = new jsPDF();
     const fileName = file.name.replace(/\.[^/.]+$/, '');
-    const title = `Procedure: ${fileName}`;
+    const title = `GUI Procedure: ${fileName}`;
     
     // PDF Styling
     const titleSize = 16;
@@ -190,6 +208,23 @@ export default function VideoProcedure() {
       yPosition += lines.length * 7;
     });
     yPosition += 10;
+
+    // Interface Setup (if available)
+    if (procedure.interface_setup) {
+      pdf.setFontSize(headingSize);
+      pdf.text('Interface Setup', margin, yPosition);
+      yPosition += 10;
+      pdf.setFontSize(textSize);
+      const setupLines = pdf.splitTextToSize(procedure.interface_setup.initial_state, 180);
+      pdf.text(setupLines, margin, yPosition);
+      yPosition += setupLines.length * 7;
+      procedure.interface_setup.requirements.forEach(req => {
+        const lines = pdf.splitTextToSize(`• ${req}`, 180);
+        pdf.text(lines, margin, yPosition);
+        yPosition += lines.length * 7;
+      });
+      yPosition += 10;
+    }
     
     // Steps
     pdf.setFontSize(headingSize);
@@ -226,9 +261,35 @@ export default function VideoProcedure() {
         pdf.text(tipLines, margin + 15, yPosition);
         yPosition += tipLines.length * 7;
       });
+
+      if (step.visual_cues) {
+        step.visual_cues.forEach(cue => {
+          const cueLines = pdf.splitTextToSize(`👁️ ${cue}`, 160);
+          pdf.text(cueLines, margin + 15, yPosition);
+          yPosition += cueLines.length * 7;
+        });
+      }
       
       yPosition += 5;
     });
+
+    // Visual Confirmation Points (if available)
+    if (procedure.visual_confirmation) {
+      if (yPosition > 250) {
+        pdf.addPage();
+        yPosition = margin;
+      }
+      pdf.setFontSize(headingSize);
+      pdf.text('Visual Confirmation Points', margin, yPosition);
+      yPosition += 10;
+      pdf.setFontSize(textSize);
+      procedure.visual_confirmation.forEach(point => {
+        const lines = pdf.splitTextToSize(`• ${point}`, 180);
+        pdf.text(lines, margin, yPosition);
+        yPosition += lines.length * 7;
+      });
+      yPosition += 10;
+    }
     
     // Verification
     if (yPosition > 250) {
@@ -282,7 +343,7 @@ export default function VideoProcedure() {
       pdf.text(`Total Cost: $${procedure.token_usage.costs.total_cost}`, margin, yPosition);
     }
     
-    pdf.save(`${fileName}-procedure.pdf`);
+    pdf.save(`${fileName}-gui-procedure.pdf`);
   };
 
   return (
@@ -298,7 +359,7 @@ export default function VideoProcedure() {
           </button>
           <div className="max-w-2xl mx-auto text-center">
             <h1 className="text-5xl font-bold">
-              Generate Procedure From Video
+              Generate Procedure From GUI Demo
             </h1>
           </div>
         </div>
@@ -307,11 +368,12 @@ export default function VideoProcedure() {
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-lg p-8">
           <h2 className="text-3xl font-bold mb-6 text-center">
-            Upload Your Video
+            Upload Your GUI Demo
           </h2>
           <p className="text-gray-600 mb-8 text-center">
-            Upload a video to generate a detailed, step-by-step procedure. Our AI will analyze the content and create a comprehensive guide.
-            Videos must be less than one hour in length.
+            Upload a screen recording of your GUI demonstration to generate a detailed, step-by-step procedure. 
+            Our AI will analyze the interface interactions and create a comprehensive guide with visual cues and confirmations.
+            Recordings must be less than one hour in length.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -336,19 +398,19 @@ export default function VideoProcedure() {
                     >
                       Your browser does not support the video tag.
                     </video>
-                    <p className="text-sm text-gray-600">Click to select a different video</p>
+                    <p className="text-sm text-gray-600">Click to select a different recording</p>
                   </div>
                 ) : (
                   <>
                     <div className="mb-4">
                       <img
-                        src="/video.svg"
-                        alt="Upload video"
+                        src="/window.svg"
+                        alt="Upload GUI demo"
                         className="w-12 h-12"
                       />
                     </div>
                     <span className="text-gray-600">
-                      Click to select or drag and drop your video file
+                      Click to select or drag and drop your screen recording
                     </span>
                   </>
                 )}
@@ -538,6 +600,18 @@ export default function VideoProcedure() {
                   </ul>
                 </div>
 
+                {procedure.interface_setup && (
+                  <div>
+                    <h3 className="text-lg font-semibold mb-2">Interface Setup</h3>
+                    <p className="text-gray-600 mb-2">{procedure.interface_setup.initial_state}</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                      {procedure.interface_setup.requirements.map((item, index) => (
+                        <li key={index} className="text-gray-600">{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 <div>
                   <h3 className="text-lg font-semibold mb-2">Procedure</h3>
                   {procedure.steps.map((step, index) => (
@@ -562,9 +636,27 @@ export default function VideoProcedure() {
                           ))}
                         </div>
                       )}
+                      {step.visual_cues && step.visual_cues.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {step.visual_cues.map((cue, cIndex) => (
+                            <p key={cIndex} className="text-purple-600">👁️ {cue}</p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
+
+                {procedure.visual_confirmation && (
+                  <div>
+                    <h3 className="text-lg font-semibold mb-2">Visual Confirmation Points</h3>
+                    <ul className="list-disc pl-5 space-y-1">
+                      {procedure.visual_confirmation.map((point, index) => (
+                        <li key={index} className="text-gray-600">{point}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 <div>
                   <h3 className="text-lg font-semibold mb-2">Verification</h3>

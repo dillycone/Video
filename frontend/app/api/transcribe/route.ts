@@ -8,6 +8,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const customPrompt = formData.get('prompt') as string;
+    const model = formData.get('model') as string || 'gemini-1.5-pro-002';
     
     if (!file) {
       return NextResponse.json(
@@ -25,20 +26,27 @@ export async function POST(request: NextRequest) {
     await writeFile(tempFilePath, buffer);
 
     // If custom prompt provided, save it temporarily
-    let tempPromptPath: string | undefined;
+    let tempPromptPath: string;
     if (customPrompt) {
       tempPromptPath = path.join(process.cwd(), '..', 'temp_prompt.txt');
       await writeFile(tempPromptPath, customPrompt);
+    } else {
+      // Use default prompt path if no custom prompt
+      tempPromptPath = path.join(process.cwd(), '..', 'prompts', 'video_transcription_prompt.txt');
     }
 
-    // Run Python script with the video file path and optional prompt path as arguments
-    const args = ['main.py', tempFilePath];
-    if (tempPromptPath) {
-      args.push(tempPromptPath);
-    }
+    // Build Python script arguments - flags must come before positional arguments
+    const pythonArgs = [
+      'main.py',
+      '--mode', 'transcribe',
+      '--model', model
+    ];
+
+    // Add positional arguments last
+    pythonArgs.push(tempFilePath, tempPromptPath);
 
     return new Promise((resolve) => {
-      const pythonProcess = spawn('python3', args, {
+      const pythonProcess = spawn('python3', pythonArgs, {
         cwd: path.join(process.cwd(), '..'),
       });
 
@@ -56,14 +64,14 @@ export async function POST(request: NextRequest) {
 
       pythonProcess.on('close', (code) => {
         // Clean up temporary files
-        spawn('rm', [tempFilePath], {
+        const filesToRemove = [tempFilePath];
+        if (customPrompt) {
+          filesToRemove.push(tempPromptPath);
+        }
+        
+        spawn('rm', filesToRemove, {
           cwd: path.join(process.cwd(), '..'),
         });
-        if (tempPromptPath) {
-          spawn('rm', [tempPromptPath], {
-            cwd: path.join(process.cwd(), '..'),
-          });
-        }
 
         if (code !== 0) {
           resolve(
