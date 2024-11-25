@@ -325,7 +325,7 @@ export default function VideoProcedureContext() {
             Upload Your Video
           </h2>
           <p className="text-gray-600 mb-8 text-center">
-            Upload a video to generate a detailed, step-by-step procedure with additional context. Our AI will analyze the content and create a comprehensive guide with enhanced contextual information.
+            Upload a video to generate a detailed, step-by-step procedure with additional context. The tool will analyze the content and create a comprehensive guide with enhanced contextual information.
             Videos must be less than one hour in length.
           </p>
 

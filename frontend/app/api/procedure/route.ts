@@ -39,10 +39,10 @@ export async function POST(request: NextRequest) {
       tempPromptPath = path.join(process.cwd(), '..', 'temp_procedure_prompt.txt');
       await writeFile(tempPromptPath, customPrompt);
     } else {
-      // Use the default prompt from root prompts directory
-      tempPromptPath = path.join(process.cwd(), '..', 'prompts', 'procedure_from_video_prompt.txt');
+      // Use the default prompt from frontend/public/prompts directory
+      tempPromptPath = path.join('frontend', 'public', 'prompts', 'procedure_from_video_prompt.txt');
       if (pdfFile) {
-        tempPromptPath = path.join(process.cwd(), '..', 'prompts', 'procedure_from_video_prompt_with_additional_context.txt');
+        tempPromptPath = path.join('frontend', 'public', 'prompts', 'procedure_from_video_prompt_with_additional_context.txt');
       }
     }
 

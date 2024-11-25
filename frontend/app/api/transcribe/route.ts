@@ -31,8 +31,8 @@ export async function POST(request: NextRequest) {
       tempPromptPath = path.join(process.cwd(), '..', 'temp_prompt.txt');
       await writeFile(tempPromptPath, customPrompt);
     } else {
-      // Use default prompt path if no custom prompt
-      tempPromptPath = path.join(process.cwd(), '..', 'prompts', 'video_transcription_prompt.txt');
+      // Use default prompt from frontend/public/prompts directory using relative path
+      tempPromptPath = path.join('frontend', 'public', 'prompts', 'video_transcription_prompt.txt');
     }
 
     // Build Python script arguments - flags must come before positional arguments

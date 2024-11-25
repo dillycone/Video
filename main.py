@@ -9,31 +9,43 @@ PROJECT_ID = "noted-app-302517"
 
 vertexai.init(project=PROJECT_ID, location="us-central1")
 
-model = GenerativeModel("gemini-1.5-flash-002")
-
-def calculate_cost(prompt_tokens: int, response_tokens: int):
-    """Calculate cost based on Gemini 1.5 Flash pricing"""
+def calculate_cost(prompt_tokens: int, response_tokens: int, model_name: str = "gemini-1.5-flash-002"):
+    """Calculate cost based on Gemini 1.5 model pricing"""
     total_tokens = prompt_tokens + response_tokens
     is_low_tier = total_tokens <= 128000
     
+    # Pricing differs based on the model
+    if model_name == "gemini-1.5-flash-002":
+        # Flash model pricing
+        input_cost_rate = 0.00001875 if is_low_tier else 0.0000375  # per 1K tokens
+        output_cost_rate = 0.000075 if is_low_tier else 0.00015  # per 1K tokens
+    elif model_name == "gemini-1.5-pro-002":
+        # Pro model pricing
+        input_cost_rate = 0.0000375 if is_low_tier else 0.0000750  # per 1K tokens
+        output_cost_rate = 0.000150 if is_low_tier else 0.000300  # per 1K tokens
+    else:
+        raise ValueError(f"Unsupported model: {model_name}")
+    
     # Text input cost (prompt tokens)
-    input_cost_rate = 0.00001875 if is_low_tier else 0.0000375  # per 1K tokens
     input_cost = (prompt_tokens / 1000) * input_cost_rate
     
     # Text output cost (response tokens)
-    output_cost_rate = 0.000075 if is_low_tier else 0.00015  # per 1K tokens
     output_cost = (response_tokens / 1000) * output_cost_rate
     
     # Total cost
     total_cost = input_cost + output_cost
     
     return {
+        "model": model_name,
         "input_cost": round(input_cost, 6),
         "output_cost": round(output_cost, 6),
         "total_cost": round(total_cost, 6)
     }
 
-def process_video(video_path: str, prompt_path: str, mode: str = "transcribe", pdf_path: str = None):
+def process_video(video_path: str, prompt_path: str, mode: str = "transcribe", pdf_path: str = None, model_name: str = "gemini-1.5-flash-002"):
+    # Initialize the model based on the selected model name
+    model = GenerativeModel(model_name)
+
     # If PDF is provided, use the context-aware prompt from the frontend/public/prompts directory
     if pdf_path:
         # Get the directory of the original prompt
@@ -95,7 +107,7 @@ def process_video(video_path: str, prompt_path: str, mode: str = "transcribe", p
     print(f"Response token count: {response_tokens}", file=sys.stderr)
     
     # Calculate costs
-    costs = calculate_cost(prompt_tokens, response_tokens)
+    costs = calculate_cost(prompt_tokens, response_tokens, model_name)
     
     token_usage = {
         "prompt_tokens": prompt_tokens,
@@ -190,11 +202,13 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=["transcribe", "procedure"], default="transcribe",
                       help="Processing mode: transcribe or procedure")
     parser.add_argument("--pdf", help="Path to an optional PDF file for additional context")
+    parser.add_argument("--model", choices=["gemini-1.5-flash-002", "gemini-1.5-pro-002"], 
+                      default="gemini-1.5-flash-002", help="Gemini model to use")
     
     args = parser.parse_args()
     
     try:
-        result = process_video(args.video_path, args.prompt_path, args.mode, args.pdf)
+        result = process_video(args.video_path, args.prompt_path, args.mode, args.pdf, args.model)
         print(result)
     except Exception as e:
         print(f"Error: {str(e)}", file=sys.stderr)

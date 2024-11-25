@@ -30,7 +30,6 @@ export default function VideoTranscription() {
   const [model, setModel] = useState('gemini-1.5-pro-002');
 
   useEffect(() => {
-    // Load the default prompt
     fetch('/prompts/video_transcription_prompt.txt')
       .then(response => response.text())
       .then(text => {
@@ -43,7 +42,6 @@ export default function VideoTranscription() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      // Cleanup previous URL if it exists
       if (videoUrl) {
         URL.revokeObjectURL(videoUrl);
       }
@@ -53,7 +51,6 @@ export default function VideoTranscription() {
       setTranscript('');
       setTokenUsage(null);
 
-      // Create new video URL
       const newVideoUrl = URL.createObjectURL(selectedFile);
       setVideoUrl(newVideoUrl);
     }
@@ -124,15 +121,12 @@ export default function VideoTranscription() {
     const title = `Transcript: ${fileName}`;
     const splitText = pdf.splitTextToSize(transcript, 180);
     
-    // Add title
     pdf.setFontSize(16);
     pdf.text(title, 15, 15);
     
-    // Add timestamp
     pdf.setFontSize(10);
     pdf.text(`Generated: ${new Date().toLocaleString()}`, 15, 25);
     
-    // Add transcript
     pdf.setFontSize(12);
     let yPosition = 35;
     
@@ -145,7 +139,6 @@ export default function VideoTranscription() {
       yPosition += 7;
     });
 
-    // Add token usage and cost information
     if (tokenUsage) {
       if (yPosition > 250) {
         pdf.addPage();
@@ -173,17 +166,17 @@ export default function VideoTranscription() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5]">
-      <div className="bg-[#CC0000] text-white py-16">
+    <div className="min-h-screen bg-base-200">
+      <div className="ti-nav py-16">
         <div className="container mx-auto px-4">
           <button
             onClick={() => router.push('/')}
-            className="mb-4 flex items-center text-white hover:text-gray-200"
+            className="mb-4 flex items-center text-white hover:text-base-200 transition-colors"
           >
             <span className="mr-2">←</span>
             Back to Tools
           </button>
-          <div className="max-w-2xl mx-auto text-center">
+          <div className="max-w-2xl mx-auto text-center animate-fade-in">
             <h1 className="text-5xl font-bold">
               Video Transcription
             </h1>
@@ -192,17 +185,17 @@ export default function VideoTranscription() {
       </div>
 
       <main className="container mx-auto px-4 py-8">
-        <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-lg p-8">
+        <div className="max-w-3xl mx-auto bg-base-100 rounded-lg shadow-lg p-8 animate-fade-in-up">
           <h2 className="text-3xl font-bold mb-6 text-center">
             Upload Your Video
           </h2>
-          <p className="text-gray-600 mb-8 text-center">
+          <p className="text-base-content/70 mb-8 text-center">
             Select a video file to generate an accurate transcript. We support most common video formats.
             Videos must be less than one hour in length.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+            <div className="border-2 border-dashed border-base-300 rounded-lg p-8 text-center">
               <input
                 type="file"
                 accept="video/*"
@@ -223,7 +216,7 @@ export default function VideoTranscription() {
                     >
                       Your browser does not support the video tag.
                     </video>
-                    <p className="text-sm text-gray-600">Click to select a different video</p>
+                    <p className="text-sm text-base-content/70">Click to select a different video</p>
                   </div>
                 ) : (
                   <>
@@ -234,7 +227,7 @@ export default function VideoTranscription() {
                         className="w-12 h-12"
                       />
                     </div>
-                    <span className="text-gray-600">
+                    <span className="text-base-content/70">
                       Click to select or drag and drop your video file
                     </span>
                   </>
@@ -246,21 +239,21 @@ export default function VideoTranscription() {
               <button
                 type="button"
                 onClick={() => setShowPrompt(!showPrompt)}
-                className="text-sm text-gray-500 hover:text-gray-700 inline-flex items-center"
+                className="text-sm text-base-content/70 hover:text-base-content transition-colors inline-flex items-center"
               >
                 Show/Edit Prompt Used to Generate Transcript {showPrompt ? '↑' : '↓'}
               </button>
             </div>
 
             {showPrompt && (
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 transition-all duration-200">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+              <div className="bg-base-200 p-4 rounded-lg border border-base-300 transition-all duration-200">
+                <label className="block text-sm font-medium text-base-content mb-2">
                   Transcription Prompt
                 </label>
                 <textarea
                   value={customPrompt}
                   onChange={(e) => setCustomPrompt(e.target.value)}
-                  className="w-full p-3 rounded border border-gray-200 text-sm font-mono"
+                  className="ti-input w-full font-mono"
                   rows={5}
                   placeholder="Enter custom transcription prompt..."
                 />
@@ -269,7 +262,7 @@ export default function VideoTranscription() {
                     <button
                       type="button"
                       onClick={() => setCustomPrompt(defaultPrompt)}
-                      className="text-sm text-gray-500 hover:text-gray-700"
+                      className="text-sm ti-link"
                     >
                       Reset to Default
                     </button>
@@ -278,9 +271,8 @@ export default function VideoTranscription() {
               </div>
             )}
 
-            {/* Model Selection */}
             <div className="flex flex-col space-y-2">
-              <label className="text-sm font-medium text-gray-700">Model Selection</label>
+              <label className="text-sm font-medium text-base-content">Model Selection</label>
               <div className="flex space-x-4">
                 <label className="inline-flex items-center">
                   <input
@@ -288,7 +280,7 @@ export default function VideoTranscription() {
                     value="gemini-1.5-pro-002"
                     checked={model === 'gemini-1.5-pro-002'}
                     onChange={(e) => setModel(e.target.value)}
-                    className="form-radio text-[#CC0000] h-4 w-4"
+                    className="form-radio text-primary h-4 w-4"
                   />
                   <span className="ml-2">Gemini 1.5 Pro</span>
                 </label>
@@ -298,7 +290,7 @@ export default function VideoTranscription() {
                     value="gemini-1.5-flash-002"
                     checked={model === 'gemini-1.5-flash-002'}
                     onChange={(e) => setModel(e.target.value)}
-                    className="form-radio text-[#CC0000] h-4 w-4"
+                    className="form-radio text-primary h-4 w-4"
                   />
                   <span className="ml-2">Gemini 1.5 Flash</span>
                 </label>
@@ -322,13 +314,13 @@ export default function VideoTranscription() {
           </form>
 
           {transcript && (
-            <div className="mt-8">
+            <div className="mt-8 animate-fade-in">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-bold">Transcript</h3>
                 <div className="flex gap-2">
                   <button
                     onClick={copyToClipboard}
-                    className="inline-flex items-center px-3 py-1 rounded-md bg-gray-100 hover:bg-gray-200 transition-colors"
+                    className="inline-flex items-center px-3 py-1 rounded-md bg-base-200 hover:bg-base-300 transition-colors"
                     title="Copy to clipboard"
                   >
                     <svg
@@ -349,7 +341,7 @@ export default function VideoTranscription() {
                   </button>
                   <button
                     onClick={exportToPDF}
-                    className="inline-flex items-center px-3 py-1 rounded-md bg-gray-100 hover:bg-gray-200 transition-colors"
+                    className="inline-flex items-center px-3 py-1 rounded-md bg-base-200 hover:bg-base-300 transition-colors"
                     title="Export to PDF"
                   >
                     <svg
@@ -411,7 +403,7 @@ export default function VideoTranscription() {
               <textarea
                 value={transcript}
                 onChange={(e) => setTranscript(e.target.value)}
-                className="w-full p-4 rounded border border-gray-200 min-h-[300px] font-mono text-sm"
+                className="ti-input w-full min-h-[300px] font-mono text-sm"
                 placeholder="Transcript will appear here..."
               />
             </div>

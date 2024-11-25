@@ -310,7 +310,7 @@ export default function VideoProcedure() {
             Upload Your Video
           </h2>
           <p className="text-gray-600 mb-8 text-center">
-            Upload a video to generate a detailed, step-by-step procedure. Our AI will analyze the content and create a comprehensive guide.
+            Upload a video to generate a detailed, step-by-step procedure. The tool will analyze the content and create a comprehensive guide.
             Videos must be less than one hour in length.
           </p>
 
