@@ -1,23 +1,29 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import Card from '../components/Card';
 
 export default function Home() {
+  const router = useRouter();
+
   const cards = [
     {
       title: "Generate a Transcript From a Video",
       description: "Convert video content into accurate text transcripts. Upload your video and get a detailed transcript in minutes.",
-      icon: "/video.svg"
+      icon: "/video.svg",
+      path: "/video-transcription"
     },
     {
-      title: "Analyze Documents",
-      description: "Coming soon: Extract insights and key information from your documents using advanced AI analysis.",
-      icon: "/document.svg"
+      title: "Generate Procedure From Video",
+      description: "Transform video content into detailed, step-by-step procedures. Upload your video and get a comprehensive guide with prerequisites, steps, and verification points.",
+      icon: "/document.svg",
+      path: "/video-procedure"
     },
     {
-      title: "Image Recognition",
-      description: "Coming soon: Identify objects, text, and patterns in images using state-of-the-art computer vision.",
-      icon: "/image.svg"
+      title: "Procedure Generation with Additional Context",
+      description: "Create enhanced step-by-step procedures from videos with additional contextual information, detailed annotations, and comprehensive guidance.",
+      icon: "/image.svg",
+      path: "/video-procedure-context"
     },
     {
       title: "Audio Processing",
@@ -62,7 +68,7 @@ export default function Home() {
                 title={card.title}
                 description={card.description}
                 icon={card.icon}
-                onClick={() => console.log(`Clicked ${card.title}`)}
+                onClick={() => card.path ? router.push(card.path) : null}
               />
             </div>
           ))}
