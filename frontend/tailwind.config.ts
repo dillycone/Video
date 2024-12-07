@@ -15,10 +15,15 @@ export default {
         "ti-red": "#CC0000",
         "ti-gray": "#F5F5F5",
       },
+      fontFamily: {
+        sans: ['var(--font-geist-sans)'],
+        mono: ['var(--font-geist-mono)'],
+      },
     },
   },
   plugins: [require("daisyui")],
   daisyui: {
     themes: ["light"],
+    base: false, // Disable base styles to prevent font loading
   },
 } satisfies Config;
