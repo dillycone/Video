@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import jsPDF from 'jspdf';
+
+interface Frame {
+  timestamp: string;
+  image: string;
+}
 
 interface Procedure {
   title: string;
@@ -13,6 +18,7 @@ interface Procedure {
     sub: string[];
     warnings: string[];
     tips: string[];
+    frames?: { timestamp: string; image: string; }[];
   }[];
   verification: string;
   troubleshooting: string[];
@@ -28,6 +34,12 @@ interface Procedure {
   };
 }
 
+interface TimestampMark {
+  time: number;
+  image: string;
+  label: string;
+}
+
 export default function VideoProcedure() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -40,6 +52,18 @@ export default function VideoProcedure() {
   const [customPrompt, setCustomPrompt] = useState('');
   const [copySuccess, setCopySuccess] = useState(false);
   const [model, setModel] = useState('gemini-1.5-pro-002');
+  const [timestampMarks, setTimestampMarks] = useState<TimestampMark[]>([]);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [frameExtractionMode, setFrameExtractionMode] = useState('uniform');
+  const [numFrames, setNumFrames] = useState(10);
+  const [threshold, setThreshold] = useState(0.5);
+  const [frameDisplayMode, setFrameDisplayMode] = useState('inline');
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [imageScale, setImageScale] = useState(70);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     // Load the default prompt
@@ -73,6 +97,105 @@ export default function VideoProcedure() {
     }
   };
 
+  const extractFrames = async () => {
+    if (!file) return;
+
+    try {
+      console.log('Starting frame extraction...');
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('mode', frameExtractionMode);
+      formData.append('numFrames', numFrames.toString());
+      formData.append('threshold', threshold.toString());
+
+      console.log('Sending request with params:', {
+        numFrames,
+        threshold
+      });
+
+      const response = await fetch('/api/extract-frames', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to extract frames');
+      }
+
+      const { frames } = await response.json();
+      console.log('Extracted frames:', frames);
+      return frames;
+    } catch (err) {
+      console.error('Failed to extract frames:', err);
+      return null;
+    }
+  };
+
+  // Handle video metadata loaded
+  const handleVideoLoaded = () => {
+    if (videoRef.current) {
+      setDuration(videoRef.current.duration);
+    }
+  };
+
+  // Handle video time update
+  const handleTimeUpdate = () => {
+    if (videoRef.current) {
+      setCurrentTime(videoRef.current.currentTime);
+    }
+  };
+
+  // Capture frame at current timestamp
+  const captureFrame = async () => {
+    if (!videoRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = canvas.toDataURL('image/jpeg');
+
+    const hours = Math.floor(currentTime / 3600);
+    const minutes = Math.floor((currentTime % 3600) / 60);
+    const seconds = Math.floor(currentTime % 60);
+    const timestamp = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+    const newMark: TimestampMark = {
+      time: currentTime,
+      image: imageData,
+      label: timestamp
+    };
+
+    setTimestampMarks(prev => [...prev, newMark].sort((a, b) => a.time - b.time));
+  };
+
+  // Format time for display
+  const formatTime = (time: number) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // Handle timeline click
+  const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!videoRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = x / rect.width;
+    const newTime = percentage * duration;
+    videoRef.current.currentTime = newTime;
+  };
+
+  // Remove timestamp mark
+  const removeMark = (index: number) => {
+    setTimestampMarks(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) return;
@@ -81,6 +204,24 @@ export default function VideoProcedure() {
     setError(null);
 
     try {
+      // Add timestamp marks to frames
+      let frames: Frame[] = [];
+      if (timestampMarks.length > 0) {
+        timestampMarks.forEach(mark => {
+          frames.push({
+            timestamp: mark.label,
+            image: mark.image
+          });
+        });
+      }
+
+      // Sort frames by timestamp
+      frames.sort((a: Frame, b: Frame) => {
+        const timeA = a.timestamp.split(':').reduce((acc: number, val: string) => acc * 60 + parseInt(val), 0);
+        const timeB = b.timestamp.split(':').reduce((acc: number, val: string) => acc * 60 + parseInt(val), 0);
+        return timeA - timeB;
+      });
+
       const formData = new FormData();
       formData.append('file', file);
       formData.append('model', model);
@@ -99,7 +240,29 @@ export default function VideoProcedure() {
         throw new Error(data.error || 'Failed to generate procedure');
       }
 
-      setProcedure(data.procedure);
+      // Distribute frames among steps
+      if (frames.length > 0) {
+        const procedureWithFrames = {
+          ...data.procedure,
+          steps: data.procedure.steps.map((step: any, index: number) => {
+            const stepStartTime = (index / data.procedure.steps.length) * duration;
+            const stepEndTime = ((index + 1) / data.procedure.steps.length) * duration;
+            
+            const stepFrames = frames.filter(frame => {
+              const frameTime = frame.timestamp.split(':').reduce((acc: number, val: string) => acc * 60 + parseInt(val), 0);
+              return frameTime >= stepStartTime && frameTime < stepEndTime;
+            });
+
+            return {
+              ...step,
+              frames: stepFrames
+            };
+          })
+        };
+        setProcedure(procedureWithFrames);
+      } else {
+        setProcedure(data.procedure);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -146,142 +309,197 @@ export default function VideoProcedure() {
     }
   };
 
-  const exportToPDF = () => {
-    if (!procedure || !file) return;
+  // Add frame-by-frame control functions
+  const stepFrame = (forward: boolean) => {
+    if (!videoRef.current) return;
+    const frameTime = 1 / 30; // Assuming 30fps, adjust if needed
+    videoRef.current.currentTime += forward ? frameTime : -frameTime;
+  };
 
+  const seekFrame = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!videoRef.current) return;
+    const frameTime = 1 / 30;
+    
+    switch (e.key) {
+      case 'ArrowLeft':
+        e.preventDefault();
+        videoRef.current.currentTime -= e.shiftKey ? frameTime : 1;
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        videoRef.current.currentTime += e.shiftKey ? frameTime : 1;
+        break;
+    }
+  };
+
+  const handleExport = () => {
+    setShowExportModal(true);
+  };
+
+  const handleExportConfirm = async () => {
+    setIsExporting(true);
+    await exportToPDF(imageScale);
+    setIsExporting(false);
+    setShowExportModal(false);
+  };
+
+  const exportToPDF = async (scale: number) => {
+    if (!procedure) return;
+
+    // Initialize PDF with better formatting
     const pdf = new jsPDF();
-    const fileName = file.name.replace(/\.[^/.]+$/, '');
-    const title = `Procedure: ${fileName}`;
-    
-    // PDF Styling
-    const titleSize = 16;
-    const headingSize = 14;
-    const textSize = 12;
-    const margin = 15;
-    let yPosition = margin;
-    
-    // Title
-    pdf.setFontSize(titleSize);
-    pdf.text(procedure.title, margin, yPosition);
-    yPosition += 15;
-    
-    // Timestamp
-    pdf.setFontSize(10);
-    pdf.text(`Generated: ${new Date().toLocaleString()}`, margin, yPosition);
-    yPosition += 15;
-    
-    // Overview
-    pdf.setFontSize(headingSize);
-    pdf.text('Overview', margin, yPosition);
-    yPosition += 10;
-    pdf.setFontSize(textSize);
-    const overviewLines = pdf.splitTextToSize(procedure.overview, 180);
-    pdf.text(overviewLines, margin, yPosition);
-    yPosition += overviewLines.length * 7 + 10;
-    
-    // Prerequisites
-    pdf.setFontSize(headingSize);
-    pdf.text('Prerequisites', margin, yPosition);
-    yPosition += 10;
-    pdf.setFontSize(textSize);
-    procedure.prerequisites.forEach(prereq => {
-      const lines = pdf.splitTextToSize(`• ${prereq}`, 180);
-      pdf.text(lines, margin, yPosition);
-      yPosition += lines.length * 7;
-    });
-    yPosition += 10;
-    
-    // Steps
-    pdf.setFontSize(headingSize);
-    pdf.text('Procedure', margin, yPosition);
-    yPosition += 10;
-    pdf.setFontSize(textSize);
-    
-    procedure.steps.forEach((step, index) => {
-      if (yPosition > 270) {
-        pdf.addPage();
-        yPosition = margin;
+    const fileName = procedure.title.toLowerCase().replace(/\s+/g, '-');
+    const margin = 20;
+    const pageWidth = pdf.internal.pageSize.width;
+    const contentWidth = pageWidth - (2 * margin);
+    let yPos = margin;
+
+    // Helper function to add a new page
+    const addNewPage = () => {
+      pdf.addPage();
+      yPos = margin;
+      return yPos;
+    };
+
+    // Helper function to check and add new page if needed
+    const checkNewPage = (requiredSpace: number) => {
+      const pageHeight = pdf.internal.pageSize.height;
+      if (yPos + requiredSpace > pageHeight - margin) {
+        return addNewPage();
+      }
+      return yPos;
+    };
+
+    // Helper function for wrapped text with proper spacing
+    const addWrappedText = (text: string, fontSize: number = 12, isBold: boolean = false): number => {
+      pdf.setFontSize(fontSize);
+      if (isBold) {
+        pdf.setFont('helvetica', 'bold');
+      } else {
+        pdf.setFont('helvetica', 'normal');
       }
       
-      const stepNum = `${index + 1}. `;
-      pdf.text(stepNum, margin, yPosition);
-      const mainStepLines = pdf.splitTextToSize(step.main, 170);
-      pdf.text(mainStepLines, margin + 10, yPosition);
-      yPosition += mainStepLines.length * 7;
+      const lines = pdf.splitTextToSize(text, contentWidth);
+      yPos = checkNewPage(lines.length * fontSize * 0.5);
       
-      step.sub.forEach(sub => {
-        const subLines = pdf.splitTextToSize(`• ${sub}`, 160);
-        pdf.text(subLines, margin + 15, yPosition);
-        yPosition += subLines.length * 7;
-      });
+      // Add proper indentation for bullet points
+      if (text.startsWith('•')) {
+        pdf.text(lines.map((line: string) => `    ${line}`), margin, yPos); // 4 spaces indent for bullets
+      } else if (text.startsWith('   •')) {
+        pdf.text(lines.map((line: string) => `        ${line}`), margin, yPos); // 8 spaces indent for sub-bullets
+      } else {
+        pdf.text(lines, margin, yPos);
+      }
       
-      step.warnings.forEach(warning => {
-        const warningLines = pdf.splitTextToSize(`⚠️ ${warning}`, 160);
-        pdf.text(warningLines, margin + 15, yPosition);
-        yPosition += warningLines.length * 7;
-      });
-      
-      step.tips.forEach(tip => {
-        const tipLines = pdf.splitTextToSize(`💡 ${tip}`, 160);
-        pdf.text(tipLines, margin + 15, yPosition);
-        yPosition += tipLines.length * 7;
-      });
-      
-      yPosition += 5;
+      yPos += lines.length * fontSize * 0.5 + 4;
+      return yPos;
+    };
+
+    // Title
+    pdf.setFont('helvetica', 'bold');
+    addWrappedText(procedure.title, 24, true);
+    yPos += 10;
+
+    // Overview section
+    addWrappedText('Overview', 16, true);
+    addWrappedText(procedure.overview);
+    yPos += 10;
+
+    // Prerequisites section
+    addWrappedText('Prerequisites', 16, true);
+    procedure.prerequisites.forEach((prereq, index) => {
+      addWrappedText(`• ${prereq}`, 12);
     });
-    
-    // Verification
-    if (yPosition > 250) {
-      pdf.addPage();
-      yPosition = margin;
-    }
-    pdf.setFontSize(headingSize);
-    pdf.text('Verification', margin, yPosition);
-    yPosition += 10;
-    pdf.setFontSize(textSize);
-    const verificationLines = pdf.splitTextToSize(procedure.verification, 180);
-    pdf.text(verificationLines, margin, yPosition);
-    yPosition += verificationLines.length * 7 + 10;
-    
-    // Troubleshooting
-    if (yPosition > 250) {
-      pdf.addPage();
-      yPosition = margin;
-    }
-    pdf.setFontSize(headingSize);
-    pdf.text('Troubleshooting', margin, yPosition);
-    yPosition += 10;
-    pdf.setFontSize(textSize);
-    procedure.troubleshooting.forEach(issue => {
-      const lines = pdf.splitTextToSize(`• ${issue}`, 180);
-      pdf.text(lines, margin, yPosition);
-      yPosition += lines.length * 7;
+    yPos += 10;
+
+    // Procedure steps
+    addWrappedText('Procedure', 16, true);
+    yPos += 5;
+
+    procedure.steps.forEach((step, index) => {
+      // Main step with proper numbering indentation
+      addWrappedText(`${index + 1}. ${step.main}`, 14, true);
+      
+      // Sub-steps with increased indentation
+      step.sub.forEach(subStep => {
+        addWrappedText(`   • ${subStep}`);
+      });
+
+      // Warnings with matching indentation
+      step.warnings.forEach(warning => {
+        addWrappedText(`   ⚠️ ${warning}`, 12);
+      });
+
+      // Tips with matching indentation
+      step.tips.forEach(tip => {
+        addWrappedText(`   💡 ${tip}`, 12);
+      });
+
+      // Add frames if available
+      if (step.frames && step.frames.length > 0) {
+        for (const frame of step.frames) {
+          try {
+            const imageData = frame.image.split(',')[1];
+            const img = new Image();
+            img.src = frame.image;
+            
+            const aspectRatio = img.height / img.width;
+            let imgWidth = contentWidth * (scale / 100);
+            let imgHeight = imgWidth * aspectRatio;
+
+            if (imgHeight > pdf.internal.pageSize.height * 0.4) {
+              imgHeight = pdf.internal.pageSize.height * 0.4;
+              imgWidth = imgHeight / aspectRatio;
+            }
+
+            yPos = checkNewPage(imgHeight + 20);
+            const xPos = margin + (contentWidth - imgWidth) / 2;
+            
+            pdf.addImage(imageData, 'JPEG', xPos, yPos, imgWidth, imgHeight);
+            yPos += imgHeight + 5;
+
+            // Add timestamp caption
+            pdf.setFontSize(10);
+            pdf.setFont('helvetica', 'italic');
+            const timeText = `Step ${index + 1} - ${frame.timestamp}`;
+            const timeWidth = pdf.getTextWidth(timeText);
+            pdf.text(timeText, margin + (contentWidth - timeWidth) / 2, yPos);
+            yPos += 15;
+          } catch (err) {
+            console.error('Failed to add image to PDF:', err);
+          }
+        }
+      }
+      yPos += 10;
     });
 
-    // Token Usage & Cost
+    // Verification section
+    addWrappedText('Verification', 16, true);
+    addWrappedText(procedure.verification);
+    yPos += 10;
+
+    // Troubleshooting section
+    addWrappedText('Troubleshooting', 16, true);
+    procedure.troubleshooting.forEach((item, index) => {
+      addWrappedText(`• ${item}`);
+    });
+
+    // Add token usage if available
     if (procedure.token_usage) {
-      if (yPosition > 250) {
-        pdf.addPage();
-        yPosition = margin;
-      }
-      yPosition += 10;
-      pdf.setFontSize(headingSize);
-      pdf.text('Token Usage & Cost', margin, yPosition);
-      yPosition += 10;
-      pdf.setFontSize(textSize);
-      pdf.text(`Prompt Tokens: ${procedure.token_usage.prompt_tokens}`, margin, yPosition);
-      yPosition += 7;
-      pdf.text(`Response Tokens: ${procedure.token_usage.response_tokens}`, margin, yPosition);
-      yPosition += 7;
-      pdf.text(`Total Tokens: ${procedure.token_usage.total_tokens}`, margin, yPosition);
-      yPosition += 10;
-      pdf.text(`Input Cost: $${procedure.token_usage.costs.input_cost}`, margin, yPosition);
-      yPosition += 7;
-      pdf.text(`Output Cost: $${procedure.token_usage.costs.output_cost}`, margin, yPosition);
-      yPosition += 7;
-      pdf.text(`Total Cost: $${procedure.token_usage.costs.total_cost}`, margin, yPosition);
+      yPos = checkNewPage(80);
+      addWrappedText('Token Usage & Cost Analysis', 14, true);
+      yPos += 5;
+      addWrappedText(`Prompt Tokens: ${procedure.token_usage.prompt_tokens}`);
+      addWrappedText(`Response Tokens: ${procedure.token_usage.response_tokens}`);
+      addWrappedText(`Total Tokens: ${procedure.token_usage.total_tokens}`);
+      yPos += 5;
+      addWrappedText('Cost Breakdown:', 12, true);
+      addWrappedText(`Input Cost: $${procedure.token_usage.costs.input_cost}`);
+      addWrappedText(`Output Cost: $${procedure.token_usage.costs.output_cost}`);
+      addWrappedText(`Total Cost: $${procedure.token_usage.costs.total_cost}`);
     }
-    
+
+    // Save the PDF
     pdf.save(`${fileName}-procedure.pdf`);
   };
 
@@ -315,6 +533,7 @@ export default function VideoProcedure() {
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* File Upload Area */}
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
               <input
                 type="file"
@@ -327,18 +546,7 @@ export default function VideoProcedure() {
                 htmlFor="video-upload"
                 className="cursor-pointer flex flex-col items-center"
               >
-                {videoUrl ? (
-                  <div className="w-full max-w-md mx-auto">
-                    <video
-                      controls
-                      src={videoUrl}
-                      className="w-full rounded-lg shadow-md mb-4"
-                    >
-                      Your browser does not support the video tag.
-                    </video>
-                    <p className="text-sm text-gray-600">Click to select a different video</p>
-                  </div>
-                ) : (
+                {!videoUrl ? (
                   <>
                     <div className="mb-4">
                       <img
@@ -351,9 +559,126 @@ export default function VideoProcedure() {
                       Click to select or drag and drop your video file
                     </span>
                   </>
+                ) : (
+                  <p className="text-sm text-gray-600">Click to select a different video</p>
                 )}
               </label>
             </div>
+
+            {/* Video Player and Controls - Outside the file upload area */}
+            {videoUrl && (
+              <div className="space-y-4">
+                <video
+                  ref={videoRef}
+                  controls
+                  src={videoUrl}
+                  className="w-full rounded-lg shadow-md"
+                  onLoadedMetadata={handleVideoLoaded}
+                  onTimeUpdate={handleTimeUpdate}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                >
+                  Your browser does not support the video tag.
+                </video>
+
+                {/* Frame Control Buttons */}
+                <div className="flex justify-center space-x-4">
+                  <button
+                    type="button"
+                    onClick={() => stepFrame(false)}
+                    className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                    title="Previous Frame (Shift + Left Arrow)"
+                  >
+                    -1 Frame
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => stepFrame(true)}
+                    className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                    title="Next Frame (Shift + Right Arrow)"
+                  >
+                    +1 Frame
+                  </button>
+                </div>
+
+                {/* Timeline with keyboard controls */}
+                <div 
+                  className="relative w-full h-8 bg-gray-200 rounded cursor-pointer"
+                  onClick={handleTimelineClick}
+                  onKeyDown={seekFrame}
+                  tabIndex={0}
+                  role="slider"
+                  aria-label="Video timeline"
+                  aria-valuemin={0}
+                  aria-valuemax={duration}
+                  aria-valuenow={currentTime}
+                >
+                  {/* Progress bar */}
+                  <div
+                    className="absolute h-full bg-red-600 opacity-50 rounded"
+                    style={{ width: `${(currentTime / duration) * 100}%` }}
+                  />
+                  {/* Timestamp marks */}
+                  {timestampMarks.map((mark, index) => (
+                    <div
+                      key={index}
+                      className="absolute w-2 h-8 bg-blue-500"
+                      style={{ left: `${(mark.time / duration) * 100}%` }}
+                      title={mark.label}
+                    />
+                  ))}
+                </div>
+
+                {/* Timestamp controls */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-600">
+                      {formatTime(currentTime)} / {formatTime(duration)}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      (Use Shift + Arrow keys for frame-by-frame)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={captureFrame}
+                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  >
+                    Capture Frame
+                  </button>
+                </div>
+
+                {/* Captured frames */}
+                {timestampMarks.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="text-lg font-semibold mb-2">Captured Frames</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      {timestampMarks.map((mark, index) => (
+                        <div key={index} className="relative">
+                          <img
+                            src={mark.image}
+                            alt={`Frame at ${mark.label}`}
+                            className="w-full rounded-lg shadow-md"
+                          />
+                          <div className="absolute top-2 right-2 flex space-x-2">
+                            <span className="bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
+                              {mark.label}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removeMark(index)}
+                              className="bg-red-500 text-white p-1 rounded hover:bg-red-600"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="text-center">
               <button
@@ -460,7 +785,7 @@ export default function VideoProcedure() {
                     {copySuccess ? 'Copied!' : 'Copy to Clipboard'}
                   </button>
                   <button
-                    onClick={exportToPDF}
+                    onClick={() => exportToPDF(70)}
                     className="inline-flex items-center px-3 py-1 rounded-md bg-gray-100 hover:bg-gray-200 transition-colors"
                     title="Export to PDF"
                   >
@@ -559,6 +884,22 @@ export default function VideoProcedure() {
                         <div className="mt-2 space-y-1">
                           {step.tips.map((tip, tIndex) => (
                             <p key={tIndex} className="text-blue-600">💡 {tip}</p>
+                          ))}
+                        </div>
+                      )}
+                      {frameDisplayMode === 'inline' && step.frames && step.frames.length > 0 && (
+                        <div className="mt-4 grid grid-cols-2 gap-4">
+                          {step.frames.map((frame, fIndex) => (
+                            <div key={fIndex} className="relative">
+                              <img
+                                src={frame.image}
+                                alt={`Frame at ${frame.timestamp}`}
+                                className="w-full rounded-lg shadow-md"
+                              />
+                              <div className="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
+                                {frame.timestamp}
+                              </div>
+                            </div>
                           ))}
                         </div>
                       )}
