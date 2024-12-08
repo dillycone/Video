@@ -64,6 +64,8 @@ export default function VideoProcedure() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [imageScale, setImageScale] = useState(70);
   const [isExporting, setIsExporting] = useState(false);
+  const [pdfImageSize, setPdfImageSize] = useState<'small' | 'medium' | 'large'>('medium');
+  const [exportFormat, setExportFormat] = useState<'pdf' | 'docx'>('pdf');
 
   useEffect(() => {
     // Load the default prompt
@@ -309,38 +311,51 @@ export default function VideoProcedure() {
     }
   };
 
-  // Add frame-by-frame control functions
+  // Update the stepFrame function
   const stepFrame = (forward: boolean) => {
     if (!videoRef.current) return;
-    const frameTime = 1 / 30; // Assuming 30fps, adjust if needed
-    videoRef.current.currentTime += forward ? frameTime : -frameTime;
+    const frameTime = 1 / 30; // Assuming 30fps
+    const newTime = videoRef.current.currentTime + (forward ? frameTime : -frameTime);
+    videoRef.current.currentTime = Math.max(0, Math.min(newTime, duration));
   };
 
-  const seekFrame = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!videoRef.current) return;
-    const frameTime = 1 / 30;
-    
-    switch (e.key) {
-      case 'ArrowLeft':
-        e.preventDefault();
-        videoRef.current.currentTime -= e.shiftKey ? frameTime : 1;
-        break;
-      case 'ArrowRight':
-        e.preventDefault();
-        videoRef.current.currentTime += e.shiftKey ? frameTime : 1;
-        break;
-    }
-  };
+  // Add keyboard event handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!videoRef.current) return;
+      
+      if (e.shiftKey) {
+        switch (e.key) {
+          case 'ArrowLeft':
+            e.preventDefault();
+            stepFrame(false);
+            break;
+          case 'ArrowRight':
+            e.preventDefault();
+            stepFrame(true);
+            break;
+        }
+      }
+    };
 
-  const handleExport = () => {
-    setShowExportModal(true);
-  };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [videoRef.current]); // Add videoRef.current to dependencies
 
-  const handleExportConfirm = async () => {
+  const handleExport = async () => {
     setIsExporting(true);
-    await exportToPDF(imageScale);
-    setIsExporting(false);
-    setShowExportModal(false);
+    try {
+      if (exportFormat === 'pdf') {
+        await exportToPDF(imageScale);
+      } else {
+        await exportToWord(imageScale);
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+    } finally {
+      setIsExporting(false);
+      setShowExportModal(false);
+    }
   };
 
   const exportToPDF = async (scale: number) => {
@@ -503,6 +518,191 @@ export default function VideoProcedure() {
     pdf.save(`${fileName}-procedure.pdf`);
   };
 
+  const exportToWord = async (scale: number) => {
+    if (!procedure) return;
+    
+    const sizeMappings = {
+      small: { width: 854 },
+      medium: { width: 1280 },
+      large: { width: 1920 }
+    };
+
+    try {
+      const response = await fetch('/api/export-word', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          procedure,
+          imageScale: scale,
+          imageSize: sizeMappings[pdfImageSize]
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate Word document');
+      }
+
+      // Get the blob from the response
+      const blob = await response.blob();
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${procedure.title.toLowerCase().replace(/\s+/g, '-')}-procedure.docx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Export to Word failed:', error);
+    }
+  };
+
+  // Add this component for better video controls
+  const VideoControls = () => {
+    return (
+      <div className="space-y-4">
+        {/* Frame controls */}
+        <div className="flex items-center justify-center space-x-4">
+          <button
+            onClick={() => stepFrame(false)}
+            className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Previous Frame (Shift + Left Arrow)"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Previous Frame
+          </button>
+          <button
+            onClick={captureFrame}
+            className="flex items-center px-6 py-2 bg-[#CC0000] text-white rounded-lg shadow-sm hover:bg-[#AA0000] transition-colors"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Capture Frame
+          </button>
+          <button
+            onClick={() => stepFrame(true)}
+            className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Next Frame (Shift + Right Arrow)"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            Next Frame
+          </button>
+        </div>
+
+        {/* Timeline */}
+        <div className="relative h-8 group">
+          {/* Progress bar background */}
+          <div 
+            className="absolute top-3 left-0 right-0 h-2 bg-gray-200 rounded-full overflow-hidden cursor-pointer"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const x = e.clientX - rect.left;
+              const percentage = x / rect.width;
+              if (videoRef.current) {
+                videoRef.current.currentTime = percentage * duration;
+              }
+            }}
+          >
+            <div
+              className="h-full bg-[#CC0000] transition-all duration-150"
+              style={{ width: `${(currentTime / duration) * 100}%` }}
+            />
+          </div>
+
+          {/* Timestamp marks */}
+          {timestampMarks.map((mark, index) => (
+            <div
+              key={index}
+              className="absolute w-1 h-4 bg-[#CC0000] top-2 -translate-x-1/2 cursor-pointer hover:bg-[#AA0000]"
+              style={{ left: `${(mark.time / duration) * 100}%` }}
+              title={mark.label}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (videoRef.current) {
+                  videoRef.current.currentTime = mark.time;
+                }
+              }}
+            />
+          ))}
+
+          {/* Hover effect and click area */}
+          <div 
+            className="absolute inset-0 cursor-pointer"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const x = e.clientX - rect.left;
+              const percentage = x / rect.width;
+              if (videoRef.current) {
+                videoRef.current.currentTime = percentage * duration;
+              }
+            }}
+          />
+        </div>
+
+        {/* Time display and keyboard hint */}
+        <div className="flex items-center justify-between text-sm text-gray-600">
+          <div className="flex items-center space-x-2">
+            <span className="font-medium">{formatTime(currentTime)} / {formatTime(duration)}</span>
+            <span className="text-gray-400">|</span>
+            <span className="text-gray-500">Use Shift + ←/→ for frame-by-frame</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <span className="text-gray-500">Captured Frames:</span>
+            <span className="font-medium text-[#CC0000]">{timestampMarks.length}</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Update the captured frames display
+  const CapturedFrames = () => {
+    if (timestampMarks.length === 0) return null;
+
+    return (
+      <div className="mt-6">
+        <h4 className="text-lg font-semibold mb-4">Captured Frames</h4>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {timestampMarks.map((mark, index) => (
+            <div key={index} className="group relative rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow">
+              <img
+                src={mark.image}
+                alt={`Frame at ${mark.label}`}
+                className="w-full h-auto"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute bottom-0 left-0 right-0 p-3 flex justify-between items-center">
+                  <span className="text-white font-medium">
+                    {mark.label}
+                  </span>
+                  <button
+                    onClick={() => removeMark(index)}
+                    className="text-white hover:text-red-400 transition-colors"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-[#F5F5F5]">
       <div className="bg-[#CC0000] text-white py-16">
@@ -567,116 +767,45 @@ export default function VideoProcedure() {
 
             {/* Video Player and Controls - Outside the file upload area */}
             {videoUrl && (
-              <div className="space-y-4">
-                <video
-                  ref={videoRef}
-                  controls
-                  src={videoUrl}
-                  className="w-full rounded-lg shadow-md"
-                  onLoadedMetadata={handleVideoLoaded}
-                  onTimeUpdate={handleTimeUpdate}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
-                >
-                  Your browser does not support the video tag.
-                </video>
-
-                {/* Frame Control Buttons */}
-                <div className="flex justify-center space-x-4">
-                  <button
-                    type="button"
-                    onClick={() => stepFrame(false)}
-                    className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                    title="Previous Frame (Shift + Left Arrow)"
+              <div 
+                className="space-y-6 bg-gray-50 p-6 rounded-xl border border-gray-200"
+                tabIndex={0} // Make div focusable
+                onKeyDown={(e) => {
+                  if (e.shiftKey) {
+                    switch (e.key) {
+                      case 'ArrowLeft':
+                        e.preventDefault();
+                        stepFrame(false);
+                        break;
+                      case 'ArrowRight':
+                        e.preventDefault();
+                        stepFrame(true);
+                        break;
+                    }
+                  }
+                }}
+              >
+                {/* Video player */}
+                <div className="relative rounded-lg overflow-hidden shadow-lg">
+                  <video
+                    ref={videoRef}
+                    controls
+                    src={videoUrl}
+                    className="w-full aspect-video bg-black"
+                    onLoadedMetadata={handleVideoLoaded}
+                    onTimeUpdate={handleTimeUpdate}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
                   >
-                    -1 Frame
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => stepFrame(true)}
-                    className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                    title="Next Frame (Shift + Right Arrow)"
-                  >
-                    +1 Frame
-                  </button>
+                    Your browser does not support the video tag.
+                  </video>
                 </div>
 
-                {/* Timeline with keyboard controls */}
-                <div 
-                  className="relative w-full h-8 bg-gray-200 rounded cursor-pointer"
-                  onClick={handleTimelineClick}
-                  onKeyDown={seekFrame}
-                  tabIndex={0}
-                  role="slider"
-                  aria-label="Video timeline"
-                  aria-valuemin={0}
-                  aria-valuemax={duration}
-                  aria-valuenow={currentTime}
-                >
-                  {/* Progress bar */}
-                  <div
-                    className="absolute h-full bg-red-600 opacity-50 rounded"
-                    style={{ width: `${(currentTime / duration) * 100}%` }}
-                  />
-                  {/* Timestamp marks */}
-                  {timestampMarks.map((mark, index) => (
-                    <div
-                      key={index}
-                      className="absolute w-2 h-8 bg-blue-500"
-                      style={{ left: `${(mark.time / duration) * 100}%` }}
-                      title={mark.label}
-                    />
-                  ))}
-                </div>
-
-                {/* Timestamp controls */}
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-gray-600">
-                      {formatTime(currentTime)} / {formatTime(duration)}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      (Use Shift + Arrow keys for frame-by-frame)
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={captureFrame}
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                  >
-                    Capture Frame
-                  </button>
-                </div>
+                {/* Video controls */}
+                <VideoControls />
 
                 {/* Captured frames */}
-                {timestampMarks.length > 0 && (
-                  <div className="mt-4">
-                    <h4 className="text-lg font-semibold mb-2">Captured Frames</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      {timestampMarks.map((mark, index) => (
-                        <div key={index} className="relative">
-                          <img
-                            src={mark.image}
-                            alt={`Frame at ${mark.label}`}
-                            className="w-full rounded-lg shadow-md"
-                          />
-                          <div className="absolute top-2 right-2 flex space-x-2">
-                            <span className="bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
-                              {mark.label}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => removeMark(index)}
-                              className="bg-red-500 text-white p-1 rounded hover:bg-red-600"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <CapturedFrames />
               </div>
             )}
 
@@ -767,7 +896,7 @@ export default function VideoProcedure() {
                   <button
                     onClick={copyToClipboard}
                     className="inline-flex items-center px-3 py-1 rounded-md bg-gray-100 hover:bg-gray-200 transition-colors"
-                    title="Copy to clipboard"
+                    title="Copy text only to clipboard"
                   >
                     <svg
                       className="w-5 h-5 mr-2"
@@ -782,12 +911,12 @@ export default function VideoProcedure() {
                         d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
                       />
                     </svg>
-                    {copySuccess ? 'Copied!' : 'Copy to Clipboard'}
+                    {copySuccess ? 'Copied!' : 'Copy Text Only to Clipboard'}
                   </button>
                   <button
-                    onClick={() => exportToPDF(70)}
+                    onClick={() => setShowExportModal(true)}
                     className="inline-flex items-center px-3 py-1 rounded-md bg-gray-100 hover:bg-gray-200 transition-colors"
-                    title="Export to PDF"
+                    title="Export to Word or PDF"
                   >
                     <svg
                       className="w-5 h-5 mr-2"
@@ -802,7 +931,7 @@ export default function VideoProcedure() {
                         d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                       />
                     </svg>
-                    Export to PDF
+                    Export to Word or PDF
                   </button>
                 </div>
               </div>
@@ -925,6 +1054,146 @@ export default function VideoProcedure() {
           )}
         </div>
       </main>
+
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full">
+            {/* Header */}
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex justify-between items-center">
+                <h3 className="text-2xl font-semibold text-gray-800">Export Options</h3>
+                <button
+                  onClick={() => setShowExportModal(false)}
+                  className="text-gray-500 hover:text-gray-700 transition-colors p-2 hover:bg-gray-100 rounded-full"
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="p-8 space-y-8">
+              {/* Export format selector */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-4">
+                  Export Format
+                </label>
+                <div className="grid grid-cols-2 gap-6">
+                  <button
+                    onClick={() => setExportFormat('pdf')}
+                    className={`flex items-center justify-center p-6 rounded-xl border-2 transition-all
+                      ${exportFormat === 'pdf' 
+                        ? 'border-[#CC0000] bg-red-50 text-[#CC0000]' 
+                        : 'border-gray-200 hover:border-gray-300'}`}
+                  >
+                    <svg className="w-8 h-8 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    <span className="text-lg">PDF Document</span>
+                  </button>
+                  <button
+                    onClick={() => setExportFormat('docx')}
+                    className={`flex items-center justify-center p-6 rounded-xl border-2 transition-all
+                      ${exportFormat === 'docx' 
+                        ? 'border-[#CC0000] bg-red-50 text-[#CC0000]' 
+                        : 'border-gray-200 hover:border-gray-300'}`}
+                  >
+                    <svg className="w-8 h-8 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span className="text-lg">Word Document</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Image quality selector */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-4">
+                  Image Quality
+                </label>
+                <div className="grid grid-cols-3 gap-6">
+                  {[
+                    { value: 'small', label: 'Standard', desc: '854px (480p)', detail: 'Good for smaller files' },
+                    { value: 'medium', label: 'High', desc: '1280px (720p)', detail: 'Recommended' },
+                    { value: 'large', label: 'Ultra', desc: '1920px (1080p)', detail: 'Best quality' }
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setPdfImageSize(option.value as 'small' | 'medium' | 'large')}
+                      className={`flex flex-col items-center p-4 rounded-xl border-2 transition-all
+                        ${pdfImageSize === option.value 
+                          ? 'border-[#CC0000] bg-red-50' 
+                          : 'border-gray-200 hover:border-gray-300'}`}
+                    >
+                      <span className="text-base font-medium mb-1">{option.label}</span>
+                      <span className="text-sm text-gray-500">{option.desc}</span>
+                      <span className="text-xs text-gray-400 mt-2">{option.detail}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Document layout scale */}
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <label className="text-sm font-medium text-gray-700">
+                    Layout Scale
+                  </label>
+                  <span className="text-sm font-medium text-[#CC0000]">{imageScale}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="10"
+                  max="100"
+                  value={imageScale}
+                  onChange={(e) => setImageScale(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#CC0000] mb-3"
+                />
+                <div className="flex justify-between text-sm text-gray-500">
+                  <span>Compact</span>
+                  <span>Full Width</span>
+                </div>
+                <p className="text-sm text-gray-500 mt-3">
+                  Adjusts how much space images take up in your document
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-gray-200 p-6 bg-gray-50 rounded-b-xl">
+              <div className="flex justify-end space-x-4">
+                <button
+                  onClick={() => setShowExportModal(false)}
+                  className="px-6 py-3 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleExport}
+                  disabled={isExporting}
+                  className="px-8 py-3 text-sm font-medium text-white bg-[#CC0000] hover:bg-[#AA0000] rounded-lg transition-colors disabled:opacity-50 flex items-center"
+                >
+                  {isExporting ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Exporting...
+                    </>
+                  ) : (
+                    `Export ${exportFormat.toUpperCase()}`
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

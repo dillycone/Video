@@ -1,56 +1,62 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
-import { writeFile, access } from 'fs/promises';
+import { writeFile, access, unlink } from 'fs/promises';
 import path from 'path';
 import { constants } from 'fs';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const mode = formData.get('mode') as string || 'keyframes'; // 'keyframes' or 'scenes'
-    const numFrames = parseInt(formData.get('numFrames') as string || '5');
-    const threshold = parseFloat(formData.get('threshold') as string || '30.0');
-    
-    if (!file) {
-      return NextResponse.json(
-        { error: 'No file provided' },
-        { status: 400 }
-      );
-    }
+    // Check if the request is JSON or FormData
+    const contentType = request.headers.get('content-type');
+    let file: File;
+    let mode = 'timestamps';
+    let numFrames = 5;
+    let threshold = 30.0;
+    let timestamps: any[] = [];
+    let targetSize: any = null;
 
-    console.log('Received file:', {
-      name: file.name,
-      type: file.type,
-      size: file.size
-    });
-
-    // Save the uploaded file
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const tempFilePath = path.join(process.cwd(), '..', file.name);
-    await writeFile(tempFilePath, buffer);
-
-    // Verify file was saved
-    try {
-      await access(tempFilePath, constants.R_OK);
-      console.log('File saved successfully:', tempFilePath);
-    } catch (err) {
-      console.error('File not accessible after save:', err);
-      return NextResponse.json(
-        { error: 'Failed to save video file' },
-        { status: 500 }
-      );
+    if (contentType?.includes('application/json')) {
+      const data = await request.json();
+      timestamps = data.timestamps || [];
+      targetSize = data.targetSize;
+      
+      // For JSON requests, we need the video file from the timestamps
+      if (timestamps.length === 0) {
+        return NextResponse.json(
+          { error: 'No timestamps provided' },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Handle FormData as before
+      const formData = await request.formData();
+      file = formData.get('file') as File;
+      mode = formData.get('mode') as string || 'keyframes';
+      numFrames = parseInt(formData.get('numFrames') as string || '5');
+      threshold = parseFloat(formData.get('threshold') as string || '30.0');
     }
 
     // Build Python script arguments
     const pythonArgs = [
       'extract_frames.py',
-      '--mode', mode,
-      '--num-frames', numFrames.toString(),
-      '--threshold', threshold.toString(),
-      tempFilePath
+      '--mode', mode
     ];
+
+    if (mode === 'keyframes') {
+      pythonArgs.push('--num-frames', numFrames.toString());
+    } else if (mode === 'scenes') {
+      pythonArgs.push('--threshold', threshold.toString());
+    } else if (mode === 'timestamps') {
+      // Create a temporary JSON file for timestamps
+      const timestampsWithSize = timestamps.map(mark => ({
+        ...mark,
+        target_size: targetSize ? [targetSize.width, targetSize.height] : undefined
+      }));
+      
+      const timestampFile = path.join(process.cwd(), '..', 'temp_timestamps.json');
+      await writeFile(timestampFile, JSON.stringify(timestampsWithSize));
+      pythonArgs.push('--timestamps', timestampFile);
+    }
 
     console.log('Running Python script with args:', pythonArgs);
 
@@ -72,13 +78,15 @@ export async function POST(request: NextRequest) {
         console.error('Python stderr:', data.toString());
       });
 
-      pythonProcess.on('close', (code) => {
-        console.log('Python process exited with code:', code);
-        
+      pythonProcess.on('close', async (code) => {
         // Clean up temporary files
-        spawn('rm', [tempFilePath], {
-          cwd: path.join(process.cwd(), '..'),
-        });
+        if (mode === 'timestamps') {
+          try {
+            await unlink(path.join(process.cwd(), '..', 'temp_timestamps.json'));
+          } catch (err) {
+            console.error('Error cleaning up timestamp file:', err);
+          }
+        }
 
         if (code !== 0) {
           resolve(
@@ -89,9 +97,7 @@ export async function POST(request: NextRequest) {
           );
         } else {
           try {
-            // Parse the JSON output from Python
             const frames = JSON.parse(output);
-            console.log('Successfully extracted frames:', frames.length);
             resolve(
               NextResponse.json(
                 { frames },
@@ -99,7 +105,6 @@ export async function POST(request: NextRequest) {
               )
             );
           } catch (parseError) {
-            console.error('Failed to parse Python output:', parseError);
             resolve(
               NextResponse.json(
                 { error: 'Invalid response format', details: output },

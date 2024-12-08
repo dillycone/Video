@@ -16,7 +16,8 @@ def capture_marked_timestamps(
     video_path: str, 
     timestamps: List[TimestampMark],
     max_width: Optional[int] = None,
-    max_height: Optional[int] = None
+    max_height: Optional[int] = None,
+    target_size: Optional[Tuple[int, int]] = None
 ) -> List[Dict]:
     """
     Capture frames at specific timestamps and return frame information.
@@ -29,7 +30,8 @@ def capture_marked_timestamps(
             mark.timestamp,
             description=mark.description,
             max_width=max_width,
-            max_height=max_height
+            max_height=max_height,
+            target_size=mark.target_size or target_size
         )
         mark.frame_path = frame_data['frame_path']
         captured_frames.append({
@@ -97,7 +99,8 @@ def main():
                 TimestampMark(
                     timestamp=mark['timestamp'],
                     description=mark.get('description'),
-                    frame_path=None
+                    frame_path=None,
+                    target_size=mark.get('target_size')
                 ) for mark in timestamp_data
             ]
             
