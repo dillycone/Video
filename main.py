@@ -1,5 +1,5 @@
-import vertexai
-from vertexai.generative_models import GenerativeModel, Part
+from google.cloud import aiplatform
+from vertexai.preview.generative_models import GenerativeModel, Part
 from pathlib import Path
 import sys
 import json
@@ -7,7 +7,7 @@ import argparse
 
 PROJECT_ID = "noted-app-302517"
 
-vertexai.init(project=PROJECT_ID, location="us-central1")
+aiplatform.init(project=PROJECT_ID, location="us-central1")
 
 def calculate_cost(prompt_tokens: int, response_tokens: int, model_name: str = "gemini-1.5-flash-002"):
     """Calculate cost based on Gemini 1.5 model pricing"""
